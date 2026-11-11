@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data Core Analytics – demo</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.27.0/plotly.min.js"></script>
+<style>
+:root{--bg:#eef0f3;--card:#fff;--ink:#1f2933;--muted:#5f6b7a;--line:#dde2e8;--blue:#2f80d1;--green:#2e8b57;--violet:#6f42c1;--warn:#d97706;--bad:#c0392b}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px 16px;background:#e3e6ea;border-bottom:1px solid var(--line)}
+header h1{font-size:20px;margin:0 12px 0 0}
+.btn{border:0;border-radius:6px;padding:7px 12px;font:inherit;color:#fff;background:#6b7280;cursor:pointer}.btn:disabled{opacity:.45;cursor:default}
+.btn.blue{background:var(--blue)}.btn.green{background:var(--green)}.btn.violet{background:var(--violet)}.btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--line)}
+nav.tabs{display:flex;gap:4px;flex-wrap:wrap;padding:10px 16px 0}
+nav.tabs button{border:0;background:#cfd5dc;color:#334;padding:7px 12px;border-radius:6px 6px 0 0;cursor:pointer;font:inherit}
+nav.tabs button.on{background:var(--blue);color:#fff}
+main{padding:0 16px 70px}.panel{background:var(--card);border:1px solid var(--line);border-radius:0 8px 8px 8px;padding:16px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px}
+.card{background:#f7f8fa;border:1px solid var(--line);border-radius:8px;padding:10px}.card b{display:block;font-size:20px}.card span{color:var(--muted);font-size:12px}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}th{background:#f3f5f7;position:sticky;top:0}
+td.num,th.num{text-align:right}.scroll{overflow:auto;max-height:340px;border:1px solid var(--line);border-radius:6px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+.warn{color:var(--warn)}.bad{color:var(--bad)}.muted{color:var(--muted)}
+pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:auto;font-size:12.5px}
+select,input[type=number]{font:inherit;padding:5px 6px;border:1px solid var(--line);border-radius:6px}
+h3{margin:4px 0 8px;font-size:15px}.chart{min-height:300px}
+footer{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);padding:6px 16px;font-size:12px;color:var(--muted)}
+.tag{position:fixed;right:10px;bottom:34px;background:#b45309;color:#fff;font-weight:600;font-size:12px;padding:4px 10px;border-radius:999px}
+.ai{position:fixed;top:0;right:0;bottom:0;width:min(420px,100%);background:#fff;border-left:1px solid var(--line);box-shadow:-8px 0 24px #0002;padding:16px;display:none;overflow:auto;z-index:5}
+.ai.open{display:block}.bubble{background:#f3f0fb;border-radius:8px;padding:10px;margin:8px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>Data Core Analytics</h1>
+  <button class="btn blue" id="reload">Ricarica dataset d'esempio</button>
+  <button class="btn" id="undo" disabled>Annulla ultima</button>
+  <button class="btn" id="reset">Ripristina originale</button>
+  <button class="btn green" id="save">Salva dataset (CSV)</button>
+  <button class="btn violet" id="aibtn" style="margin-left:auto">Assistente IA</button>
+</header>
+<nav class="tabs" id="tabs"></nav>
+<main><div class="panel" id="panel"></div></main>
+<aside class="ai" id="ai">
+  <div class="row" style="justify-content:space-between"><h3>Assistente IA</h3><button class="btn ghost" id="aiclose">Chiudi</button></div>
+  <p class="muted">Nella versione completa risponde Google Gemini, con lo schema e le statistiche del dataset. Qui alcune domande d'esempio con risposte pronte.</p>
+  <div id="aiqs"></div><div id="aians"></div>
+</aside>
+<footer id="status">Pronto.</footer>
+<div class="tag">DEMO · dati fittizi</div>
+<script>
+// ---------- dataset d'esempio (generato, sempre uguale) ----------
+function rng(seed){return()=>{seed=(seed*1664525+1013904223)%4294967296;return seed/4294967296}}
+function makeData(){
+  const r=rng(42),pick=(a,p)=>{const x=r();let c=0;for(let i=0;i<a.length;i++){c+=p?p[i]:1/a.length;if(x<c)return a[i]}return a[a.length-1]};
+  const rows=[];
+  for(let i=0;i<600;i++){
+    const d=new Date(2025,0,1+Math.floor(r()*365));
+    const cat=pick(['Elettronica','Casa','Sport','Libri','Abbigliamento']);
+    const base={Elettronica:120,Casa:55,Sport:45,Libri:18,Abbigliamento:38}[cat];
+    const season=1+0.35*Math.sin((d.getMonth()-2)/12*2*Math.PI)+(d.getMonth()===10||d.getMonth()===11?0.45:0);
+    const q=1+Math.floor(r()*6*season), p=+(base*(0.6+r()*0.9)).toFixed(2), s=pick([0,5,10,15,20],[.4,.2,.2,.12,.08]);
+    rows.push({'Data Ordine':`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`,'Regione':pick(['Nord','Centro','Sud','Isole'],[.4,.25,.25,.1]),'Categoria':cat,'Canale':pick(['Online','Negozio']),
+      'Quantita':q,'Prezzo Unitario':p,'Sconto %':s,'Soddisfazione Cliente':Math.min(5,Math.max(1,Math.round(3.2+(r()-0.5)*3-(s===0?0.4:0)))),'Fatturato':+(q*p*(1-s/100)).toFixed(2)});
+  }
+  for(const c of ['Prezzo Unitario','Soddisfazione Cliente','Regione'])for(let k=0;k<25;k++)rows[Math.floor(r()*600)][c]=null;
+  for(let k=0;k<12;k++)rows.push({...rows[Math.floor(r()*600)]});
+  rows.sort((a,b)=>a['Data Ordine'].localeCompare(b['Data Ordine']));
+  return rows;
+}
+// ---------- stato ----------
+let data,original,history=[],ops=[],tab=0;
+const $=s=>document.querySelector(s),fmt=(v,d=2)=>v==null||isNaN(v)?'—':Number(v).toLocaleString('it-IT',{maximumFractionDigits:d});
+const cols=()=>Object.keys(data[0]||{});
+const isNum=c=>data.some(r=>typeof r[c]==='number');
+const numCols=()=>cols().filter(isNum);
+function status(t){$('#status').textContent=t}
+function load(){original=makeData();data=original.map(r=>({...r}));history=[];ops=[{d:"Caricato 'vendite_esempio.csv'",code:"df = pd.read_csv('vendite_esempio.csv')"}];refresh(`Caricato 'vendite_esempio.csv': ${data.length} righe × ${cols().length} colonne`)}
+function apply(desc,code,fn){history.push(data.map(r=>({...r})));data=fn(data);ops.push({d:desc,code});refresh(desc)}
+function refresh(msg){$('#undo').disabled=!history.length;status(msg+' · operazioni annullabili: '+history.length);render()}
+// ---------- statistiche ----------
+const vals=c=>data.map(r=>r[c]).filter(v=>v!=null&&v!=='');
+function q(a,p){const s=[...a].sort((x,y)=>x-y),i=(s.length-1)*p,l=Math.floor(i);return s[l]+(s[Math.ceil(i)]-s[l])*(i-l)}
+function mean(a){return a.reduce((x,y)=>x+y,0)/a.length}
+function std(a){const m=mean(a);return Math.sqrt(a.reduce((s,x)=>s+(x-m)**2,0)/(a.length-1))}
+function skew(a){const m=mean(a),s=std(a);return a.reduce((t,x)=>t+((x-m)/s)**3,0)/a.length}
+function dupCount(){const seen=new Set();let n=0;for(const r of data){const k=JSON.stringify(r);if(seen.has(k))n++;else seen.add(k)}return n}
+function pearson(a,b){const p=data.filter(r=>r[a]!=null&&r[b]!=null),x=p.map(r=>r[a]),y=p.map(r=>r[b]),mx=mean(x),my=mean(y);let n=0,dx=0,dy=0;for(let i=0;i<x.length;i++){n+=(x[i]-mx)*(y[i]-my);dx+=(x[i]-mx)**2;dy+=(y[i]-my)**2}return n/Math.sqrt(dx*dy)}
+// ---------- schede ----------
+const TABS=['Pulizia & Validazione','Insights & Statistica','Time Series','Machine Learning','Codice & Report'];
+function renderTabs(){$('#tabs').innerHTML=TABS.map((t,i)=>`<button class="${i===tab?'on':''}" data-t="${i}">${t}</button>`).join('');$('#tabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{tab=+b.dataset.t;render()})}
+function render(){renderTabs();[clean,stats,ts,ml,report][tab]()}
+function clean(){
+  const n=data.length,c=cols(),nulls=c.reduce((s,k)=>s+data.filter(r=>r[k]==null).length,0);
+  $('#panel').innerHTML=`<div class="cards"><div class="card"><span>Righe</span><b>${n}</b></div><div class="card"><span>Colonne</span><b>${c.length}</b></div>
+  <div class="card"><span>Celle nulle</span><b>${fmt(nulls/(n*c.length)*100,1)}%</b></div><div class="card"><span>Righe duplicate</span><b>${dupCount()}</b></div></div>
+  <h3>Operazioni di pulizia</h3><div class="row">
+   <button class="btn blue" id="dd">Elimina duplicati</button><button class="btn blue" id="fm">Valori mancanti numerici → mediana</button>
+   <button class="btn blue" id="dr">Elimina righe senza Regione</button><button class="btn blue" id="sn">Nomi colonne in snake_case</button></div>
+  <div class="scroll"><table><tr><th>Colonna</th><th>Tipo</th><th class="num">Non nulli</th><th class="num">Nulli</th><th class="num">% nulli</th><th class="num">Valori unici</th></tr>
+  ${c.map(k=>{const nn=data.filter(r=>r[k]!=null).length,u=new Set(data.map(r=>r[k])).size,p=(n-nn)/n*100;return `<tr class="${p>0?'warn':''}"><td>${k}</td><td>${isNum(k)?(data.every(r=>r[k]==null||Number.isInteger(r[k]))?'Intero':'Decimale'):'Testo'}</td><td class="num">${nn}</td><td class="num">${n-nn}</td><td class="num">${fmt(p,1)}%</td><td class="num">${u}</td></tr>`}).join('')}</table></div>
+  <p class="muted">Righe evidenziate: colonne con valori mancanti.</p>
+  <h3>Anteprima dati</h3><div class="scroll"><table><tr>${c.map(k=>`<th>${k}</th>`).join('')}</tr>${data.slice(0,15).map(r=>`<tr>${c.map(k=>`<td class="${typeof r[k]==='number'?'num':''}">${r[k]==null?'<span class="bad">NaN</span>':typeof r[k]==='number'?fmt(r[k]):r[k]}</td>`).join('')}</tr>`).join('')}</table></div>`;
+  $('#dd').onclick=()=>{const before=data.length;apply('Eliminati i duplicati','df = df.drop_duplicates()',d=>{const s=new Set();return d.filter(r=>{const k=JSON.stringify(r);if(s.has(k))return false;s.add(k);return true})});status(`Eliminati ${before-data.length} duplicati`)};
+  $('#fm').onclick=()=>{const nc=numCols(),med={};nc.forEach(k=>med[k]=q(vals(k),.5));apply('Valori mancanti numerici sostituiti con la mediana',`for col in ${JSON.stringify(nc)}:\n    df[col] = df[col].fillna(df[col].median())`,d=>d.map(r=>{const o={...r};nc.forEach(k=>{if(o[k]==null)o[k]=med[k]});return o}))};
+  $('#dr').onclick=()=>{const k=cols().find(c=>/regione/i.test(c));apply('Eliminate le righe senza Regione',`df = df.dropna(subset=['${k}'])`,d=>d.filter(r=>r[k]!=null))};
+  $('#sn').onclick=()=>{const m={};cols().forEach(k=>m[k]=k.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,''));apply('Nomi colonne in snake_case',`df.columns = ${JSON.stringify(Object.values(m))}`,d=>d.map(r=>Object.fromEntries(Object.entries(r).map(([k,v])=>[m[k],v]))))};
+}
+function stats(){
+  const nc=numCols();
+  $('#panel').innerHTML=`<h3>Statistiche descrittive</h3><div class="scroll"><table><tr><th>Colonna</th>${['count','media','dev. std','min','25%','mediana','75%','max','asimmetria'].map(h=>`<th class="num">${h}</th>`).join('')}</tr>
+  ${nc.map(k=>{const v=vals(k);return `<tr><td>${k}</td><td class="num">${v.length}</td><td class="num">${fmt(mean(v))}</td><td class="num">${fmt(std(v))}</td><td class="num">${fmt(Math.min(...v))}</td><td class="num">${fmt(q(v,.25))}</td><td class="num">${fmt(q(v,.5))}</td><td class="num">${fmt(q(v,.75))}</td><td class="num">${fmt(Math.max(...v))}</td><td class="num">${fmt(skew(v))}</td></tr>`}).join('')}</table></div>
+  <div class="grid2" style="margin-top:14px"><div><h3>Matrice di correlazione (Pearson)</h3><div id="corr" class="chart"></div></div>
+  <div><h3>Distribuzione</h3><div class="row"><select id="hc">${nc.map(k=>`<option>${k}</option>`).join('')}</select><label><input type="checkbox" id="box"> boxplot per categoria</label></div><div id="hist" class="chart"></div></div></div>
+  <h3>Outlier (regola IQR)</h3><p id="out"></p>`;
+  const z=nc.map(a=>nc.map(b=>+pearson(a,b).toFixed(2)));
+  Plotly.newPlot('corr',[{z,x:nc,y:nc,type:'heatmap',colorscale:'RdBu',zmin:-1,zmax:1,reversescale:true,text:z,texttemplate:'%{text}'}],{margin:{l:130,b:110,t:10,r:10},height:360},{displayModeBar:false,responsive:true});
+  const draw=()=>{const k=$('#hc').value,cat=cols().find(c=>/categoria/i.test(c));
+    if($('#box').checked)Plotly.newPlot('hist',[...new Set(data.map(r=>r[cat]))].map(g=>({y:data.filter(r=>r[cat]===g&&r[k]!=null).map(r=>r[k]),type:'box',name:g})),{margin:{t:10,l:50,r:10,b:40},height:330,showlegend:false},{displayModeBar:false,responsive:true});
+    else Plotly.newPlot('hist',[{x:vals(k),type:'histogram',marker:{color:'#2f80d1'}}],{margin:{t:10,l:50,r:10,b:40},height:330},{displayModeBar:false,responsive:true});
+    const v=vals(k),q1=q(v,.25),q3=q(v,.75),i=q3-q1,n=v.filter(x=>x<q1-1.5*i||x>q3+1.5*i).length;
+    $('#out').innerHTML=`<b>${k}</b>: ${n} valori fuori da [${fmt(q1-1.5*i)} ; ${fmt(q3+1.5*i)}]. Nella versione completa si possono rimuovere o limitare (winsorizzazione) e ci sono anche test t, ANOVA, chi-quadrato e test di normalità.`};
+  $('#hc').onchange=draw;$('#box').onchange=draw;draw();
+}
+function monthly(){const dk=cols().find(c=>/data/i.test(c)),fk=cols().find(c=>/fatturato/i.test(c)),m={};data.forEach(r=>{const k=r[dk].slice(0,7);m[k]=(m[k]||0)+(r[fk]||0)});return Object.keys(m).sort().map(k=>[k,m[k]])}
+function holt(y,a,b,h){let l=y[0],t=y[1]-y[0];const fit=[y[0]];for(let i=1;i<y.length;i++){const pl=l;l=a*y[i]+(1-a)*(l+t);t=b*(l-pl)+(1-b)*t;fit.push(l)}const f=[];for(let k=1;k<=h;k++)f.push(l+k*t);return{fit,f}}
+function ts(){
+  $('#panel').innerHTML=`<h3>Fatturato mensile</h3><div class="row">Media mobile <input type="number" id="mm" value="3" min="1" max="6" style="width:60px">
+   α (livello) <input type="range" id="al" min="0.1" max="0.9" step="0.05" value="0.5"> β (trend) <input type="range" id="be" min="0.05" max="0.6" step="0.05" value="0.2"> mesi da prevedere <input type="number" id="hz" value="6" min="1" max="12" style="width:60px"></div>
+   <div id="tsc" class="chart"></div><p id="tsm" class="muted"></p>`;
+  const draw=()=>{const s=monthly(),x=s.map(v=>v[0]),y=s.map(v=>v[1]),k=+$('#mm').value,a=+$('#al').value,b=+$('#be').value,h=+$('#hz').value;
+    const ma=y.map((_,i)=>i<k-1?null:mean(y.slice(i-k+1,i+1)));
+    const tr=holt(y.slice(0,-3),a,b,3),mae=mean(tr.f.map((v,i)=>Math.abs(v-y[y.length-3+i])));
+    const full=holt(y,a,b,h),fx=[];let [yy,mo]=x[x.length-1].split('-').map(Number);for(let i=0;i<h;i++){mo++;if(mo>12){mo=1;yy++}fx.push(`${yy}-${String(mo).padStart(2,'0')}`)}
+    Plotly.newPlot('tsc',[{x,y,name:'Fatturato',type:'scatter',mode:'lines+markers'},{x,y:ma,name:`Media mobile ${k}`,line:{dash:'dot'}},{x:fx,y:full.f,name:'Previsione (Holt)',line:{dash:'dash',color:'#d97706'}}],{margin:{t:10,l:60,r:10,b:40},height:360,legend:{orientation:'h'}},{displayModeBar:false,responsive:true});
+    $('#tsm').textContent=`Validazione sugli ultimi 3 mesi: MAE ${fmt(mae,0)} € (${fmt(mae/mean(y.slice(-3))*100,1)}%). Nella versione completa: scomposizione trend/stagionalità, Holt-Winters ed export delle previsioni.`};
+  ['mm','al','be','hz'].forEach(i=>$('#'+i).oninput=draw);draw();
+}
+function solve(A,b){const n=A.length;A=A.map((r,i)=>[...r,b[i]]);for(let i=0;i<n;i++){let p=i;for(let j=i+1;j<n;j++)if(Math.abs(A[j][i])>Math.abs(A[p][i]))p=j;[A[i],A[p]]=[A[p],A[i]];for(let j=i+1;j<n;j++){const f=A[j][i]/A[i][i];for(let k=i;k<=n;k++)A[j][k]-=f*A[i][k]}}const x=Array(n).fill(0);for(let i=n-1;i>=0;i--){x[i]=(A[i][n]-A[i].slice(i+1,n).reduce((s,v,k)=>s+v*x[i+1+k],0))/A[i][i]}return x}
+function ml(){
+  const nc=numCols(),tgt=nc.find(c=>/fatturato/i.test(c));
+  $('#panel').innerHTML=`<h3>Regressione lineare</h3><div class="row">Target: <select id="tg">${nc.map(k=>`<option ${k===tgt?'selected':''}>${k}</option>`).join('')}</select></div>
+  <div class="row" id="fs"></div><div class="row">Quota di test <input type="range" id="ts" min="0.1" max="0.4" step="0.05" value="0.2"> <span id="tsv"></span> <button class="btn blue" id="tr">Addestra modello</button></div>
+  <div class="cards" id="met"></div><div class="grid2"><div id="pv" class="chart"></div><div id="co" class="chart"></div></div>`;
+  const feats=()=>{const t=$('#tg').value;$('#fs').innerHTML='Feature: '+nc.filter(k=>k!==t).map(k=>`<label><input type="checkbox" value="${k}" checked> ${k}</label>`).join(' ')};
+  $('#tg').onchange=feats;feats();$('#ts').oninput=()=>$('#tsv').textContent=Math.round($('#ts').value*100)+'%';$('#ts').oninput();
+  $('#tr').onclick=()=>{const t=$('#tg').value,F=[...$('#fs').querySelectorAll('input:checked')].map(i=>i.value);if(!F.length)return status('Scegli almeno una feature');
+    const rows=data.filter(r=>r[t]!=null&&F.every(f=>r[f]!=null)),r=rng(7),idx=rows.map((_,i)=>i).sort(()=>r()-0.5),nt=Math.round(rows.length*(1-$('#ts').value));
+    const X=i=>[1,...F.map(f=>rows[i][f])],tr=idx.slice(0,nt),te=idx.slice(nt);
+    const XtX=X(0).map((_,a)=>X(0).map((_,b)=>tr.reduce((s,i)=>s+X(i)[a]*X(i)[b],0))),Xty=X(0).map((_,a)=>tr.reduce((s,i)=>s+X(i)[a]*rows[i][t],0)),w=solve(XtX,Xty);
+    const pred=te.map(i=>X(i).reduce((s,v,k)=>s+v*w[k],0)),real=te.map(i=>rows[i][t]),my=mean(real);
+    const ss=real.reduce((s,v,i)=>s+(v-pred[i])**2,0),r2=1-ss/real.reduce((s,v)=>s+(v-my)**2,0),mae=mean(real.map((v,i)=>Math.abs(v-pred[i]))),rmse=Math.sqrt(ss/real.length);
+    $('#met').innerHTML=`<div class="card"><span>R²</span><b>${fmt(r2,3)}</b></div><div class="card"><span>MAE</span><b>${fmt(mae)}</b></div><div class="card"><span>RMSE</span><b>${fmt(rmse)}</b></div><div class="card"><span>Righe train / test</span><b>${tr.length} / ${te.length}</b></div>`;
+    Plotly.newPlot('pv',[{x:real,y:pred,mode:'markers',type:'scatter',marker:{size:5}},{x:[Math.min(...real),Math.max(...real)],y:[Math.min(...real),Math.max(...real)],mode:'lines',line:{dash:'dot'}}],{title:{text:'Predetto vs reale',font:{size:13}},showlegend:false,margin:{t:30,l:50,r:10,b:40},height:320,xaxis:{title:'reale'},yaxis:{title:'predetto'}},{displayModeBar:false,responsive:true});
+    Plotly.newPlot('co',[{x:w.slice(1),y:F,type:'bar',orientation:'h',marker:{color:'#6f42c1'}}],{title:{text:'Coefficienti',font:{size:13}},margin:{t:30,l:140,r:10,b:40},height:320},{displayModeBar:false,responsive:true});
+    ops.push({d:`Regressione lineare su ${t}`,code:`from sklearn.linear_model import LinearRegression\nX, y = df[${JSON.stringify(F)}], df['${t}']\nmodel = LinearRegression().fit(X_train, y_train)  # R² test = ${r2.toFixed(3)}`});
+    status(`Modello addestrato: R² ${fmt(r2,3)}. Nella versione completa anche Random Forest, classificazione, matrice di confusione e salvataggio .joblib.`)};
+  $('#tr').onclick();
+}
+function report(){
+  $('#panel').innerHTML=`<h3>Script Python generato (segue ogni operazione)</h3><pre>import pandas as pd\n\n${ops.map(o=>'# '+o.d+'\n'+o.code).join('\n\n')}</pre>
+  <h3>Registro operazioni</h3><ol>${ops.map(o=>`<li>${o.d}</li>`).join('')}</ol>
+  <p class="muted">Nella versione completa: report HTML, report Excel multi-foglio, esportazione CSV / XLSX / Parquet e query SQL con DuckDB.</p>`;
+}
+// ---------- comandi ----------
+$('#reload').onclick=load;
+$('#undo').onclick=()=>{if(!history.length)return;data=history.pop();ops.pop();refresh('Ultima operazione annullata')};
+$('#reset').onclick=()=>{history.push(data);data=original.map(r=>({...r}));ops=ops.slice(0,1);refresh('Ripristinato il dataset originale')};
+$('#save').onclick=()=>{const c=cols(),csv=[c.join(','),...data.map(r=>c.map(k=>r[k]==null?'':JSON.stringify(r[k])).join(','))].join('\n'),a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='vendite_pulite.csv';a.click()};
+const QA=[['Quali colonne hanno problemi di qualità?',()=>`Ci sono valori mancanti in ${cols().filter(k=>data.some(r=>r[k]==null)).join(', ')||'nessuna colonna'} e ${dupCount()} righe duplicate. Consiglio: elimina i duplicati, poi sostituisci i numerici mancanti con la mediana (robusta agli outlier) e valuta se eliminare le righe senza regione.`],
+ ['Cosa influenza di più il fatturato?',()=>{const f=cols().find(c=>/fatturato/i.test(c));const c=numCols().filter(k=>k!==f).map(k=>[k,pearson(k,f)]).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]));return `Correlazioni con ${f}: `+c.map(([k,v])=>`${k} ${v.toFixed(2)}`).join(', ')+'. Quantità e prezzo pesano di più; lo sconto ha un effetto negativo ma piccolo.'}],
+ ['C\'è stagionalità nelle vendite?',()=>{const s=monthly(),top=[...s].sort((a,b)=>b[1]-a[1]).slice(0,2).map(v=>v[0]);return `Sì: i mesi più forti sono ${top.join(' e ')}, con un picco a fine anno. Per la previsione conviene un modello con stagionalità (Holt-Winters) quando ci sono almeno 2 anni di dati.`}]];
+$('#aiqs').innerHTML=QA.map((x,i)=>`<button class="btn ghost" style="margin:4px 4px 0 0" data-q="${i}">${x[0]}</button>`).join('');
+$('#aiqs').querySelectorAll('button').forEach(b=>b.onclick=()=>{const [qq,f]=QA[b.dataset.q];$('#aians').innerHTML=`<div class="bubble"><b>${qq}</b><br>${f()}</div>`+$('#aians').innerHTML});
+$('#aibtn').onclick=()=>$('#ai').classList.add('open');$('#aiclose').onclick=()=>$('#ai').classList.remove('open');
+load();
+</script>
+</body>
+</html>

@@ -3,6 +3,10 @@
 Piattaforma desktop (CustomTkinter) per pulizia, trasformazione, analisi statistica, time series,
 machine learning e reporting di dataset CSV, Excel, Parquet, SQLite e PostgreSQL.
 
+**[Prova la demo](https://andreapollastrelli95.github.io/data-core-analytics/)** · pulizia dati, statistiche, previsioni e regressione calcolate nel browser su un dataset inventato. Tutti i dati sono fittizi.
+
+![Demo: serie temporale e previsione](docs/demo-3.png)
+
 ![Data Core Analytics](docs/screenshot-1.png)
 
 Nella cartella `esempi/` c'è un dataset di vendite inventato (con valori mancanti e duplicati) per provare tutte le funzioni.
