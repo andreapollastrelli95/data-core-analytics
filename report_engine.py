@@ -172,3 +172,137 @@ def excel_report(path: str, df: pd.DataFrame, summary: dict, source: str, log: l
     except OSError as exc:
         raise DataError(f"Impossibile scrivere il report:\n{exc}") from exc
     return note
+
+
+# --------------------------------------------------------------------------- #
+# Report dell'analisi guidata
+# --------------------------------------------------------------------------- #
+GUIDED_CSS = """
+.md p{margin:8px 0}.md ul,.md ol{margin:8px 0;padding-left:24px}.md li{margin:3px 0}
+.md h3{margin:20px 0 6px;font-size:15px}.md code,pre{font-family:Consolas,monospace;font-size:12.5px}
+.md code{background:var(--card);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;overflow-x:auto;white-space:pre-wrap}
+.q{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:10px;padding:12px 16px;margin:0 0 8px;font-size:15px}
+.step{margin:18px 0 6px;font-weight:600}.err{color:#c02626}.md td,.md th{text-align:left;white-space:normal}
+"""
+
+
+def _md_inline(text: str) -> str:
+    import re
+
+    text = html.escape(text)
+    text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+    text = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"(?<![\w*])[*_]([^*_\s][^*_]*)[*_](?![\w*])", r"<i>\1</i>", text)
+    return text
+
+
+def markdown_html(md: str) -> str:
+    """Markdown essenziale → HTML (titoli, elenchi, tabelle, grassetto, codice)."""
+    import re
+
+    out, para, lst, table, code = [], [], None, [], None
+
+    def flush():
+        nonlocal para, lst, table
+        if para:
+            out.append("<p>" + "<br>".join(_md_inline(p) for p in para) + "</p>")
+            para = []
+        if lst:
+            out.append(f"</{lst}>")
+            lst = None
+        if table:
+            rows = [[c.strip() for c in r.strip().strip("|").split("|")] for r in table]
+            rows = [r for r in rows if not all(re.fullmatch(r":?-{2,}:?", c or "-") for c in r)]
+            if rows:
+                head = "".join(f"<th>{_md_inline(c)}</th>" for c in rows[0])
+                body = "".join("<tr>" + "".join(f"<td>{_md_inline(c)}</td>" for c in r) + "</tr>"
+                               for r in rows[1:])
+                out.append(f"<div class='tbl'><table><thead><tr>{head}</tr></thead>"
+                           f"<tbody>{body}</tbody></table></div>")
+            table = []
+
+    for line in md.splitlines():
+        if line.strip().startswith("```"):
+            if code is None:
+                flush()
+                code = []
+            else:
+                out.append("<pre>" + html.escape("\n".join(code)) + "</pre>")
+                code = None
+            continue
+        if code is not None:
+            code.append(line)
+            continue
+        stripped = line.strip()
+        if not stripped:
+            flush()
+            continue
+        m = re.match(r"(#{1,4})\s+(.*)", stripped)
+        if m:
+            flush()
+            level = max(2, min(len(m.group(1)), 4))
+            out.append(f"<h{level}>{_md_inline(m.group(2))}</h{level}>")
+            continue
+        if stripped.startswith("|") and stripped.endswith("|"):
+            if para or lst:
+                flush()
+            table.append(stripped)
+            continue
+        m = re.match(r"([-*•]|\d+[.)])\s+(.*)", stripped)
+        if m:
+            kind = "ol" if m.group(1)[0].isdigit() else "ul"
+            if para or table or (lst and lst != kind):
+                flush()
+            if not lst:
+                out.append(f"<{kind}>")
+                lst = kind
+            out.append(f"<li>{_md_inline(m.group(2))}</li>")
+            continue
+        if lst or table:
+            flush()
+        para.append(stripped)
+    if code is not None:
+        out.append("<pre>" + html.escape("\n".join(code)) + "</pre>")
+    flush()
+    return "\n".join(out)
+
+
+def guided_html(path: str, run) -> None:
+    """Report dell'analisi guidata: risposta, verifiche e appendice con ogni passo e il suo codice."""
+    parts = [
+        "<h1>Analisi guidata</h1>",
+        f"<p class='sub'>Sorgente: {html.escape(os.path.basename(run.source) or 'dataset')} · "
+        f"{fmt_int(run.rows)} righe × {run.cols} colonne · {run.started:%d/%m/%Y %H:%M} · "
+        "Data Core Analytics</p>",
+        f"<div class='q'><b>Domanda</b><br>{html.escape(run.question)}</div>",
+        f"<div class='md'>{markdown_html(run.report_md)}</div>",
+        "<h2>Appendice: passi eseguiti</h2>",
+        "<p class='sub'>Ogni numero del report proviene da uno di questi calcoli, eseguiti "
+        "dall'applicazione sui dati caricati. Il codice riproduce il passo in Python.</p>",
+    ]
+    for s in run.steps:
+        if s.tool:
+            cls = " err" if s.failed else ""
+            parts.append(f"<p class='step{cls}'>Passo {s.n} · {html.escape(s.title)}</p>")
+            if s.failed:
+                parts.append(f"<p class='sub'>Errore: {html.escape(s.result.error)}</p>")
+                continue
+            if s.result.table is not None:
+                parts.append(_table(s.result.table, 60))
+            elif s.result.meta.get("text"):
+                parts.append("<pre>" + html.escape(s.result.meta["text"]) + "</pre>")
+            if s.result.code:
+                parts.append("<pre>" + html.escape(s.result.code) + "</pre>")
+        elif s.phase in ("controllo", "revisione") and s.detail:
+            parts.append(f"<p class='step'>Passo {s.n} · {html.escape(s.title)}</p>"
+                         f"<div class='md'>{markdown_html(s.detail)}</div>")
+    doc = (f"<!doctype html><html lang='it'><head><meta charset='utf-8'>"
+           f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
+           f"<title>Analisi guidata — {html.escape(os.path.basename(run.source))}</title>"
+           f"<style>{CSS}{GUIDED_CSS}</style></head><body><main>{''.join(parts)}</main></body></html>")
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(doc)
+    except OSError as exc:
+        raise DataError(f"Impossibile scrivere il report:\n{exc}") from exc

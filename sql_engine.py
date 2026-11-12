@@ -15,8 +15,12 @@ MAX_RESULT_ROWS = 5_000_000
 # --------------------------------------------------------------------------- #
 # DuckDB
 # --------------------------------------------------------------------------- #
-def run_query(query: str, tables: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Esegue una query DuckDB; ogni DataFrame in `tables` è interrogabile con il suo nome."""
+def run_query(query: str, tables: dict[str, pd.DataFrame], sandbox: bool = False) -> pd.DataFrame:
+    """Esegue una query DuckDB; ogni DataFrame in `tables` è interrogabile con il suo nome.
+
+    Con `sandbox=True` (query scritte dall'assistente IA) DuckDB non può leggere o scrivere file,
+    collegare database né installare estensioni: vede soltanto i DataFrame registrati.
+    """
     query = query.strip().rstrip(";").strip()
     if not query:
         raise DataError("Scrivi una query SQL da eseguire.")
@@ -30,6 +34,8 @@ def run_query(query: str, tables: dict[str, pd.DataFrame]) -> pd.DataFrame:
         for name, df in tables.items():
             if df is not None:
                 con.register(name, _duckdb_safe(df))
+        if sandbox:
+            con.execute("SET enable_external_access = false")
         try:
             rel = con.execute(query)
         except duckdb.Error as exc:

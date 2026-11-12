@@ -70,6 +70,11 @@ def fmt_int(n: int) -> str:
     return f"{int(n):,}".replace(",", ".")
 
 
+def fmt_num(x: float, digits: int = 2) -> str:
+    """Numero in formato italiano: 1.234,56."""
+    return f"{float(x):,.{digits}f}".replace(",", "§").replace(".", ",").replace("§", ".")
+
+
 def fmt_pct(x: float, digits: int = 1) -> str:
     return f"{x:.{digits}f}%".replace(".", ",")
 

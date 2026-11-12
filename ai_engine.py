@@ -354,3 +354,120 @@ def stream_reply(history: list[Turn], cancel: threading.Event | None = None):
         yield ("note", "Risposta troncata: raggiunta la lunghezza massima.")
     elif reason in ("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII"):
         yield ("note", "Risposta interrotta dai filtri di sicurezza di Gemini.")
+
+
+# --------------------------------------------------------------------------- #
+# Chiamata singola con strumenti (usata dall'analisi guidata)
+# --------------------------------------------------------------------------- #
+@dataclass
+class ModelReply:
+    text: str = ""
+    calls: list = field(default_factory=list)   # [(nome strumento, argomenti)]
+    raw: object = None                           # contenuto originale, da rimandare al modello
+    tokens: int = 0
+    finish: str = ""
+
+
+def _agent_contents(messages: list[dict]):
+    """Messaggi neutri dell'agente → formato Gemini.
+
+    Ruoli: "user" (text), "model" (raw oppure text/calls) e "tool" (results: [(nome, dict)],
+    con un eventuale text aggiunto in coda).
+    Il contenuto originale del modello viene rimandato intatto, come richiede l'API quando la
+    risposta contiene chiamate a strumenti.
+    """
+    from google.genai import types
+
+    out = []
+    for m in messages:
+        role = m["role"]
+        if role == "user":
+            out.append(types.Content(role="user", parts=[types.Part(text=m["text"])]))
+        elif role == "model":
+            if m.get("raw") is not None:
+                out.append(m["raw"])
+                continue
+            parts = [types.Part(text=m["text"])] if m.get("text") else []
+            parts += [types.Part(function_call=types.FunctionCall(name=n, args=a))
+                      for n, a in m.get("calls", [])]
+            out.append(types.Content(role="model", parts=parts))
+        elif role == "tool":
+            parts = [types.Part.from_function_response(name=n, response=r) for n, r in m["results"]]
+            if m.get("text"):
+                parts.append(types.Part(text=m["text"]))
+            out.append(types.Content(role="user", parts=parts))
+    return out
+
+
+def generate(messages: list[dict], system: str, tools: list[dict] | None = None,
+             allow_tools: bool = True, json_mode: bool = False,
+             cancel: threading.Event | None = None, on_wait=None) -> ModelReply:
+    """Una chiamata (non in streaming) a Gemini, con eventuali strumenti dichiarati.
+
+    `tools` è l'elenco di ai_tools.declarations(). Con `allow_tools=False` gli strumenti
+    restano dichiarati (la cronologia può contenerne le chiamate) ma il modello deve rispondere
+    a parole. Gli strumenti non vengono mai eseguiti qui: lo fa l'agente, che registra ogni passo.
+    """
+    import httpx
+    from google.genai import errors, types
+
+    cancel = cancel or threading.Event()
+    client = _client()
+    kwargs: dict = {"system_instruction": system}
+    if tools:
+        kwargs["tools"] = [types.Tool(function_declarations=[
+            types.FunctionDeclaration(name=t["name"], description=t["description"],
+                                      parameters_json_schema=t["parameters"]) for t in tools])]
+        kwargs["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(disable=True)
+        if not allow_tools:
+            kwargs["tool_config"] = types.ToolConfig(
+                function_calling_config=types.FunctionCallingConfig(mode="NONE"))
+    if json_mode:
+        kwargs["response_mime_type"] = "application/json"
+    config = types.GenerateContentConfig(**kwargs)
+    contents = _agent_contents(messages)
+    waited = False
+    try:
+        while True:
+            try:
+                resp = client.models.generate_content(model=MODEL, contents=contents, config=config)
+                break
+            except errors.APIError as exc:
+                quota = _quota_info(exc) if exc.code == 429 else None
+                if (quota and not quota.daily and not waited and quota.delay is not None
+                        and quota.delay <= 60):
+                    waited = True
+                    if on_wait:
+                        on_wait(quota.delay)
+                    if cancel.wait(quota.delay + 1):
+                        raise DataError("Analisi interrotta.") from exc
+                    continue
+                raise _api_error(exc, quota) from exc
+    except (httpx.TransportError, OSError) as exc:
+        if isinstance(exc, (httpx.TimeoutException, TimeoutError)):
+            raise DataError(f"Gemini non ha risposto entro {ai_config.TIMEOUT_SECONDS} secondi.\n\n"
+                            "Riprova; se succede spesso, controlla la connessione.") from exc
+        raise _network_error() from exc
+
+    feedback = getattr(resp, "prompt_feedback", None)
+    if feedback is not None and getattr(feedback, "block_reason", None):
+        raise DataError("Gemini ha bloccato la richiesta per i suoi filtri di sicurezza.")
+    reply = ModelReply()
+    candidate = resp.candidates[0] if resp.candidates else None
+    content = getattr(candidate, "content", None)
+    reply.raw = content
+    reply.finish = str(getattr(getattr(candidate, "finish_reason", None), "name", "") or "")
+    for part in (getattr(content, "parts", None) or []):
+        if getattr(part, "function_call", None) is not None:
+            fc = part.function_call
+            reply.calls.append((fc.name, dict(fc.args or {})))
+        elif getattr(part, "text", None) and not getattr(part, "thought", False):
+            reply.text += part.text
+    usage = getattr(resp, "usage_metadata", None)
+    reply.tokens = int(getattr(usage, "total_token_count", 0) or 0)
+    if not reply.calls and not reply.text.strip():
+        if reply.finish in ("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII"):
+            raise DataError("Risposta interrotta dai filtri di sicurezza di Gemini.")
+        raise DataError("Gemini ha restituito una risposta vuota"
+                        + (f" (motivo: {reply.finish})" if reply.finish else "") + ". Riprova.")
+    return reply

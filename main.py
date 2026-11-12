@@ -23,6 +23,7 @@ from cleaner import DataError
 from codegen import Op
 from gui import widgets as W
 from gui.tab_clean import CleanTab
+from gui.tab_guided import GuidedTab
 from gui.tab_insights import InsightsTab
 from gui.tab_ml import MLTab
 from gui.tab_report import ReportTab
@@ -37,6 +38,7 @@ TABS = [
     ("Insights & Statistica", InsightsTab),
     ("Time Series", TimeSeriesTab),
     ("Machine Learning", MLTab),
+    ("Analisi guidata", GuidedTab),
     ("Codice & Report", ReportTab),
 ]
 OPEN_TYPES = [("File di dati", "*.csv *.tsv *.txt *.xlsx *.xlsm *.xls *.parquet"),

@@ -1,0 +1,3 @@
+-r requirements.txt
+# Test automatici
+pytest>=8.3
