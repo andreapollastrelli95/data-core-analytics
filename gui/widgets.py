@@ -226,7 +226,7 @@ class FigurePanel(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
         self._builder = None
-        self._canvas = None
+        self._plot_canvas = None
         self._toolbar = None
         self._fig = None
         self._placeholder = ctk.CTkLabel(self, text=placeholder, text_color=MUTED)
@@ -262,9 +262,9 @@ class FigurePanel(ctk.CTkFrame):
         if self._toolbar is not None:
             self._toolbar.destroy()
             self._toolbar = None
-        if self._canvas is not None:
-            self._canvas.get_tk_widget().destroy()
-            self._canvas = None
+        if self._plot_canvas is not None:
+            self._plot_canvas.get_tk_widget().destroy()
+            self._plot_canvas = None
         # Gli oggetti Tk della toolbar formano cicli di riferimenti: vanno raccolti qui, nel
         # thread della GUI, e non da un thread di lavoro (Tk lo vieta e rallenterebbe l'app).
         gc.collect()
@@ -275,11 +275,11 @@ class FigurePanel(ctk.CTkFrame):
         self._unmount()
         self._placeholder.grid_remove()
         self._fig = fig
-        self._canvas = FigureCanvasTkAgg(fig, master=self)
-        widget = self._canvas.get_tk_widget()
+        self._plot_canvas = FigureCanvasTkAgg(fig, master=self)
+        widget = self._plot_canvas.get_tk_widget()
         widget.configure(highlightthickness=0, bg=palette(is_dark())["bg"])
         widget.grid(row=0, column=0, sticky="nsew", padx=4, pady=(4, 0))
-        self._toolbar = NavigationToolbar2Tk(self._canvas, self, pack_toolbar=False)
+        self._toolbar = NavigationToolbar2Tk(self._plot_canvas, self, pack_toolbar=False)
         bg = palette(is_dark())["head"]
         self._toolbar.configure(background=bg)
         for child in self._toolbar.winfo_children():
@@ -288,7 +288,7 @@ class FigurePanel(ctk.CTkFrame):
             except tk.TclError:
                 pass
         self._toolbar.grid(row=1, column=0, sticky="ew", padx=4, pady=(0, 4))
-        self._canvas.draw()
+        self._plot_canvas.draw()
 
 
 # --------------------------------------------------------------------------- #

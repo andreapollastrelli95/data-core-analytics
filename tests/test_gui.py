@@ -133,3 +133,24 @@ def test_dictionary_dialog_saves(app):
     app.update()
     assert store.load_dictionary(app.source)["colonne"] == {"Fatturato": "Importo netto"}
     assert "1 colonna descritta" in tab.dict_status.cget("text")
+
+
+def test_figure_panels_keep_the_internal_canvas_of_ctk(window):
+    """I pannelli dei grafici non devono sovrascrivere il canvas interno di CTkFrame.
+
+    Se `_canvas` diventa None, la libreria dell'interfaccia va in errore («winfo_exists»)
+    appena si apre una scheda con grafici.
+    """
+    from gui.widgets import FigurePanel
+
+    panels = []
+
+    def walk(widget):
+        if isinstance(widget, FigurePanel):
+            panels.append(widget)
+        for child in widget.winfo_children():
+            walk(child)
+
+    walk(window)
+    assert panels, "nessun pannello grafico trovato"
+    assert all(p._canvas is not None for p in panels)
